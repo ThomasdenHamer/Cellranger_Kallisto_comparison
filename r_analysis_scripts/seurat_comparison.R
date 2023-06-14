@@ -2,21 +2,25 @@ library(tidyverse)
 library(batchelor)
 library(Seurat)
 library(Matrix)
-#library(fossil, include.only = 'rand.index')
-#library(pdfCluster, include.only = 'adj.rand.index')
+library(fossil, include.only = 'rand.index')
+library(pdfCluster, include.only = 'adj.rand.index')
 library(hdf5r)
 library(SeuratWrappers)
 library(gprofiler2)
 library(future)
 library(SeuratDisk)
 
+unloadNamespace("Rcpp")
+
+#Sessioninfo
+sessionInfo()
 ## We can use multiple cores for some functions, see: https://satijalab.org/seurat/v3.2/future_vignette.html
 plan("multisession", workers = 2)
 plan("sequential")
 plan()
 
-clust_char <- function(seuratobj){
-  outputdf <- seuratobj[["seurat_clusters"]] %>% rownames_to_column()
+clust_char <- function(seuratobj, metavariable="seurat_clusters"){
+  outputdf <- seuratobj[[metavariable]] %>% rownames_to_column()
   factor_columns <- sapply(outputdf, is.factor)
   outputdf[factor_columns] <- lapply(outputdf[factor_columns], as.character)
   outputdf <- outputdf %>% column_to_rownames()
@@ -80,17 +84,15 @@ tr2g <- read_tsv(paste0("/exports/sascstudent/thomas/ref_indices/GRch38_kallisto
   H48_sample <- load_kalbus(paste0(KALBUSFOL, "sample_48H"), projectname = "sample_48H")
   H120_sample <- load_kalbus(paste0(KALBUSFOL, "sample_120H"), projectname = "sample_120H")
   
-  kal_inhouse <- merge(H120_sample, y = c(H0_sample1, H0_sample2, H48_sample), add.cell.ids = c("batch_1_sample_120H", "batch_2_A", "batch_2_B", "batch_1_sample_48H"), project = "mesonephros")
+  kal_inhouse_before <- merge(H120_sample, y = c(H0_sample1, H0_sample2, H48_sample), add.cell.ids = c("batch_1_sample_120H", "batch_2_A", "batch_2_B", "batch_1_sample_48H"), project = "mesonephros")
   remove(H0_sample1, H0_sample2, H48_sample, H120_sample)
   gc()
-}
-
-{
   sample_mapping <- read_tsv("/exports/sascstudent/thomas/hiPSC_susana/sample_name_full_dataset.tsv", 
                              skip = 1, col_names = c("rownames","sample_name")) %>% column_to_rownames(., var = "rownames")
   rownames(sample_mapping) <- rownames(sample_mapping) %>% str_sub(end = -3)
-  kal_inhouse[["sample_name"]] <- sample_mapping
+  kal_inhouse_before[["sample_name"]] <- sample_mapping
 }
+
 
 {
   PGCLCd1_b1 <- load_kalbus(paste0(KALBUSFOL, "PGCLCd1-batch1"), projectname = "D1_rep1")
@@ -163,7 +165,7 @@ tr2g <- read_tsv(paste0("/exports/sascstudent/thomas/ref_indices/GRch38_kallisto
   iMeLC_b2[["timepoint"]] <- "iMeLC"
 }
 
-kal_inhouse <- readRDS("/exports/sascstudent/thomas/R_output/hiPSC_kallisto_inhouse_mnn.rds")
+#kal_inhouse <- readRDS("/exports/sascstudent/thomas/R_output/hiPSC_kallisto_inhouse_mnn.rds")
 Idents(kal_inhouse) <- "hiPSC"
 kal_inhouse[["sample_id"]] <- "hiPSC"
 kal_inhouse[["replicate"]] <- "hiPSC"
@@ -221,6 +223,8 @@ genes <- c(genes, "NOCT", "MT1A", "MT2A")
 
 s.genes <- cc.genes$s.genes
 g2m.genes <- cc.genes$g2m.genes
+
+kal_inhouse
 
 {
   #Kallisto inhouse complete process and analysis
@@ -632,9 +636,122 @@ Idents(cell_merged) <- "seurat_clusters"
 DimPlot(cell_merged , reduction = "umap")
 
 
-kal_inhouse[["seurat_clusters_ch"]] <- clust_char(kal_inhouse)
-SaveH5Seurat(kal_inhouse, filename = "/exports/sascstudent/thomas/R_output/kal_inhouse_6clus.h5seurat", overwrite = T)
-Convert("/exports/sascstudent/thomas/R_output/kal_inhouse_6clus.h5seurat", dest = "h5ad", overwrite = T)
+#Add any extra meta features, such as annotations. Generate the h5ad file from seurat objects
+
+cellranger_cluster_ann <- cell_inhouse[["seurat_clusters"]]
+rownames(cellranger_cluster_ann) <- rownames(cellranger_cluster_ann) %>% str_extract(. , pattern = ".+[ATCG]+")
+head(rownames(cellranger_cluster_ann))
+
+cellranger_cluster_ann_df <- cellranger_cluster_ann %>% rownames_to_column()
+factor_columns <- sapply(cellranger_cluster_ann_df, is.factor)
+cellranger_cluster_ann_df[factor_columns] <- lapply(cellranger_cluster_ann_df[factor_columns], as.character)
+cellranger_cluster_ann_df <- cellranger_cluster_ann_df %>% column_to_rownames()
+kal_inhouse[["cellranger_cluster_ann"]] <- cellranger_cluster_ann_df
+
+remove(factor_columns, cellranger_cluster_ann, cellranger_cluster_ann_df)
+
+colnames(kal_inhouse[[]])
+
+kal_inhouse[["kallisto_cluster_ann"]] <- clust_char(kal_inhouse)
+SaveH5Seurat(kal_inhouse, filename = "/exports/sascstudent/thomas/R_output/kal_inhouse.h5seurat", overwrite = T)
+Convert("/exports/sascstudent/thomas/R_output/kal_inhouse.h5seurat", dest = "h5ad", overwrite = T)
+
+#Kal merged####################################
+
+head(rownames(kal_merged[[]]), 10)
+head(rownames(cell_merged[[]]), 10)
+head(rownames(kal_inhouse[[]]), 10)
+head(rownames(cell_inhouse[[]]), 10)
+
+
+
+rownames(cell_merged[[]]) %>% str_sub(end = -3)
+cell_merged.clusters <- cell_merged[["seurat_clusters"]]
+rownames(cell_merged.clusters) <- rownames(cell_merged.clusters) %>% str_sub(end = -3)
+
+kal_merged[["cellranger_merged_clustering"]] <- cell_merged.clusters
+
+cell_inhouse.clusters <- cell_merged[["hiPSC_only_clustering"]]
+rownames(cell_inhouse.clusters) <- rownames(cell_inhouse.clusters) %>% str_sub(end = -3)
+
+kal_merged[["cellranger_inhouse_clustering"]] <- cell_inhouse.clusters
+
+DimPlot(kal_merged, group.by = "seurat_clusters")
+DimPlot(kal_merged, group.by = "hiPSC_only_clustering")
+DimPlot(kal_merged, group.by = "cellranger_inhouse_clustering")
+DimPlot(kal_merged, group.by = "cellranger_merged_clustering")
+
+colnames(kal_merged[[]])
+
+kal_merged[["kallisto_merged_clusters_ch"]] <- clust_char(kal_merged, "seurat_clusters")
+kal_merged[["kallisto_inhouse_clusers_ch"]] <- clust_char(kal_merged, "hiPSC_only_clustering")
+kal_merged[["cellranger_merged_clusters_ch"]] <- clust_char(kal_merged, "cellranger_merged_clustering")
+kal_merged[["cellranger_inhouse_clusters_ch"]] <- clust_char(kal_merged, "cellranger_inhouse_clustering")
+
+SaveH5Seurat(kal_merged, filename = "/exports/sascstudent/thomas/R_output/kal_merged.h5seurat", overwrite = T)
+Convert("/exports/sascstudent/thomas/R_output/kal_merged.h5seurat", dest = "h5ad", overwrite = T)
+
+
+
+############################################################################
+
+#Marker genes of Cellranger CL0 and CL1
+Idents(cell_inhouse) <- "seurat_clusters"
+cell_cl0_pos <- FindMarkers(cell_inhouse, logfc.threshold = 0.25, min.pct = 0.25, only.pos = T, 
+            ident.1 = "0", ident.2 = "1") %>% filter(pct.1 > 0.6, p_val_adj < 0.05)
+cell_cl1_pos <- FindMarkers(cell_inhouse, logfc.threshold = 0.25, min.pct = 0.25, only.pos = T, 
+                            ident.1 = "1", ident.2 = "0") %>% filter(pct.1 > 0.6, p_val_adj < 0.05)
+
+rownames(cell_cl0_pos) %>% cat(sep = ", ")
+rownames(cell_cl1_pos) %>% cat(sep = ", ")
+c(rownames(cell_cl0_pos),rownames(cell_cl1_pos)) %>% cat(sep = " ")
+
+
+#Marker genes of Kallisto CL0 and CL1
+Idents(kal_inhouse) <- "seurat_clusters"
+kal_cl0_pos <- FindMarkers(kal_inhouse, logfc.threshold = 0.25, min.pct = 0.25, only.pos = T, 
+                            ident.1 = "0", ident.2 = "1") %>% filter(pct.1 > 0.6, p_val_adj < 0.05)
+kal_cl1_pos <- FindMarkers(kal_inhouse, logfc.threshold = 0.25, min.pct = 0.25, only.pos = T, 
+                            ident.1 = "1", ident.2 = "0") %>% filter(pct.1 > 0.6, p_val_adj < 0.05)
+
+kal_cl0_pos %>% filter(pct.2 < 0.5) %>% rownames() %>% cat(sep = ", ")
+kal_cl1_pos %>% filter(pct.2 < 0.5) %>% rownames() %>% cat(sep = ", ")
+
+c(rownames(kal_cl0_pos %>% filter(pct.2 < 0.5)), rownames(kal_cl1_pos %>% filter(pct.2 < 0.5))) %>% cat(sep = " ")
+
+####################################
+cell_cl0_pos %>% rownames() %>% cat(sep = "\n")
+cell_cl1_pos %>% rownames() %>% cat(sep = ",")
+###############################################
+kal_cl0_pos %>% rownames() %>% cat(sep = ",")
+kal_cl1_pos %>% rownames() %>% cat(sep = "\n")
+#################################################
+
+
+
+
+
+#Gprofile Cell CL0+CL1 markers
+cell_cl0_pos.gostres <- gost(cell_cl0_pos %>% rownames(), organism = "hsapiens")
+cell_cl1_pos.gostres <- gost(cell_cl1_pos %>% rownames(), organism = "hsapiens")
+gostplot(cell_cl0_pos.gostres)
+gostplot(cell_cl1_pos.gostres)
+gost(cell_cl0_pos %>% rownames(), organism = "hsapiens", as_short_link = T)
+gost(cell_cl1_pos %>% rownames(), organism = "hsapiens", as_short_link = T)
+#################################################################
+kal_cl0_pos.gostres <- gost(kal_cl0_pos %>% rownames(), organism = "hsapiens")
+kal_cl1_pos.gostres <- gost(kal_cl1_pos %>% rownames(), organism = "hsapiens")
+gostplot(kal_cl0_pos.gostres)
+gostplot(kal_cl1_pos.gostres)
+gost(kal_cl0_pos %>% rownames(), organism = "hsapiens", as_short_link = T)
+gost(kal_cl1_pos %>% rownames(), organism = "hsapiens", as_short_link = T)
+
+
+
+
+
+
+
 
 kal_markers <- FindAllMarkers(kal_inhouse, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 test <- kal_markers %>%
@@ -754,13 +871,13 @@ VlnPlot(cell_inhouse, features = "PLK1", ncol = 1) |
 VlnPlot(kal_inhouse, features = "PLK1", ncol = 1)
 
 
-#saveRDS(kal_inhouse, "/exports/sascstudent/thomas/R_output/kal_inhouse_mnn_testing.rds")
 
 cell_cl0_markers <- c("SOX2", "ZIC2", "USP44", "POLR3G")
 cell_cl1_markers <- c("HIST1H1B", "HIST1H1E", "USP44", "HIST1H1D")
 
 kal_cl0_markers <- c("SFRP1", "RAB17", "USP44", "LINC02700")
 kal_cl1_markers <- c("NEFL", "UTF1", "ONECUT1", "NODAL")
+
 
 #Cluster 0 markers from cellranger####################################################
 print(cell_cl0_markers)
@@ -819,26 +936,6 @@ for (cl in clusters) {
     arrange(p_val_adj) %>%
     dplyr::select(gene)
 }
-gost_results <- gost(query = query_list, organism = "hsapiens", ordered_query = TRUE,
-                     user_threshold = 0.05, domain_scope = "annotated", sources = c("GO:BP", "KEGG"))
-terms_table <- gost_results$result %>%
-  dplyr::select(-parents)
-
-terms_table
-
-
-#Cellranger
-#6 Major Clusters
-#Largest cluster made from 7 clusters
-#Cluster with 1 larger and 2 very small
-#cluster made from 2 equal sized clusters
-
-#KalBus
-#5-6 Major clusters
-#Largest cluster made from 6 clusters
-#Cluster from 2 equal sized clusters
-#Cluster from 1 larger and 2 smaller clusters
-
 
 #Loading the RDS object so i dont have to repeat earlier steps #################
 #cell_pbmc <- readRDS("cell_pbmc3k_final.rds")
@@ -860,53 +957,6 @@ rand.index(cell_cluster, kal_cluster)
 adj.rand.index(cell_cluster, kal_cluster)
 
 remove(cell.clusters, kal.clusters, cell_cluster, kal_cluster, com.cluster.barcodes)
-
-################################################################################
-#Clusters similarity matrix of cell counts
-# get_cluster_count <- function(cell.cluster.num, cell.cluster.name) {
-#   cell.cluster.barcodes <- cell_pbmc[[]] %>%
-#     filter(seurat_clusters == cell.cluster.num) %>%
-#     rownames()
-#   test <- kal_pbmc[[]] %>%
-#     select(seurat_clusters) %>%
-#     rownames_to_column() %>%
-#     filter(rowname %in% cell.cluster.barcodes) %>%
-#     column_to_rownames() %>%
-#     group_by(seurat_clusters) %>%
-#     summarise(cell.cluster.name = length(seurat_clusters)) %>%
-#     column_to_rownames("seurat_clusters")
-#   rownames(test) <- lapply(rownames(test), function(x) paste0("kal.clust.", x))
-#   colnames(test) <- cell.cluster.name
-#   test <- test %>% rownames_to_column()
-#   return(test)
-# }
-# 
-# {
-#   clus_list <- lapply(levels(cell_pbmc@meta.data$seurat_clusters), FUN = function(x) get_cluster_count(x, paste0("cell.clust.", x)))
-#   remove(clust_share)
-#   clust_share <- data.frame(x=0:8)
-#   rownames(clust_share) <- lapply(seq(1:9)-1, function(x) paste0("kal.clust.",x))
-#   clust_share <- clust_share %>% rownames_to_column()
-#   clust_share <- subset(clust_share, select = -c(x))
-#   
-#   for (i in seq(1:length(clus_list))){
-#     clust_share <- left_join(clust_share, clus_list[[i]], by="rowname")
-#   }
-#   clust_share <- clust_share %>%
-#     column_to_rownames() %>%
-#     mutate_all(~replace(., is.na(.), 0))
-#   for (i in seq(1:ncol(clust_share))){
-#     names(clust_share)[names(clust_share) == colnames(clust_share)[i]] <-paste0(colnames(clust_share)[i], ".", as.character(sum(clust_share[i])))
-#   }
-#   for (i in seq(1:nrow(clust_share))){
-#     rownames(clust_share)[rownames(clust_share) == rownames(clust_share)[i]] <- paste0(rownames(clust_share)[i], ".", sum(clust_share[i,]))
-#   }
-#   remove(i, clus_list)
-# }
-# clust_share
-
-rownames(cell_inhouse[[]])
-str_extract(rownames(cell_inhouse[[]]), ".+[ATCG]+")
 
 
 #Fix for cellranger suffix
@@ -996,24 +1046,5 @@ data %>%
     scale_fill_gradient(breaks=c(100,75,50,25,0), labels=c("100%", "75%", "50%", "25%","0%"))
 
 ###############################################################
-#Find all markers
-# find markers for every cluster compared to all remaining cells, report only the positive
-# ones
-#Cellranger
-cell_pbmc.markers <- FindAllMarkers(cell_pbmc, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-cell.mark.sort.selec <- cell_pbmc.markers %>%
-  group_by(cluster) %>%
-  slice_max(n = 5, order_by = avg_log2FC)
-
-cell.mark.sort.selec %>% print(n=45)
-
-#Kallisto
-kal_pbmc.markers <- FindAllMarkers(kal_inhouse, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-kal.mark.sort.selec <- kal_pbmc.markers %>%
-  group_by(cluster) %>%
-  arrange(avg_log2FC) %>%
-  slice_max(n = 5, order_by = avg_log2FC)
-
-kal.mark.sort.selec %>% print(n=45)
 
 
